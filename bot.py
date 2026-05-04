@@ -4,9 +4,25 @@ import sqlite3
 from datetime import date, datetime
 import os
 
-BOT_TOKEN = "8611715470:AAH_n04OCwEJ4T-zzF79PXQdZCmLKBIMKbQ"  # <-- ЗАМЕНИ НА СВОЙ
+BOT_TOKEN = "8611715470:AAH_n04OCwEJ4T-zzF79PXQdZCmLKBIMKbQ"
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# ============================================================
+# ТВОЙ ГОТОВЫЙ СПИСОК ЕЖЕМЕСЯЧНЫХ ПЛАТЕЖЕЙ
+# ============================================================
+PLAN_PAYMENTS = [
+    {"name": "Садик", "amount": 49000},
+    {"name": "Ипотека", "amount": 15000},
+    {"name": "Кредит", "amount": 1250},
+    {"name": "ЮИТ", "amount": 6000},
+    {"name": "ПСК", "amount": 1500},
+    {"name": "Интернет", "amount": 680},
+    {"name": "Моб.связь", "amount": 0},
+    {"name": "VPN", "amount": 299},
+    {"name": "Тхэквандо", "amount": 4900},
+]
+# ============================================================
 
 # --- БАЗА ДАННЫХ ---
 def init_db():
@@ -25,7 +41,8 @@ def init_db():
                   name TEXT,
                   amount REAL,
                   completed INTEGER DEFAULT 0,
-                  month TEXT)''')
+                  month TEXT,
+                  is_extra INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS no_smoke
                  (user_id INTEGER PRIMARY KEY,
                   start_date DATE,
@@ -47,6 +64,21 @@ def init_db():
 
 init_db()
 
+# --- ПРОВЕРКА И СОЗДАНИЕ ПЛАТЕЖЕЙ НА ТЕКУЩИЙ МЕСЯЦ ---
+def ensure_monthly_payments(user_id):
+    month_str = date.today().strftime("%Y-%m")
+    conn = sqlite3.connect('my_life.db')
+    c = conn.cursor()
+    c.execute("SELECT count(*) FROM payments WHERE user_id=? AND month=? AND is_extra=0",
+              (user_id, month_str))
+    count = c.fetchone()[0]
+    if count == 0:
+        for p in PLAN_PAYMENTS:
+            c.execute("INSERT INTO payments (user_id, name, amount, month, is_extra) VALUES (?,?,?,?,0)",
+                      (user_id, p["name"], p["amount"], month_str))
+    conn.commit()
+    conn.close()
+
 # --- ГЛАВНОЕ МЕНЮ ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -60,7 +92,6 @@ def main_menu():
     markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7)
     return markup
 
-# --- КЛАВИАТУРА ОТМЕНЫ ---
 def get_cancel_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(types.KeyboardButton("• Отмена"))
@@ -69,6 +100,7 @@ def get_cancel_keyboard():
 # --- СТАРТ ---
 @bot.message_handler(commands=['start'])
 def start(message):
+    ensure_monthly_payments(message.chat.id)
     bot.send_message(message.chat.id, "Привет. Я твой ежедневник.\nВыбери раздел:", reply_markup=main_menu())
 
 # --- ОБРАБОТЧИК МЕНЮ ---
@@ -85,6 +117,7 @@ def handle_menu(message):
     elif message.text == "• Задачи на неделю":
         show_tasks(message, 'week')
     elif message.text == "• Платежи":
+        ensure_monthly_payments(user_id)
         show_payments(message)
     elif message.text == "• Не курю":
         check_smoke(message)
@@ -165,22 +198,41 @@ def complete_task(message):
 # --- ПЛАТЕЖИ ---
 def show_payments(message):
     user_id = message.chat.id
+    month_str = date.today().strftime("%Y-%m")
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
-    month_str = date.today().strftime("%Y-%m")
-    c.execute("SELECT id, name, amount, completed FROM payments WHERE user_id=? AND month=?",
+
+    # Основные платежи
+    c.execute("SELECT id, name, amount, completed FROM payments WHERE user_id=? AND month=? AND is_extra=0 ORDER BY id",
               (user_id, month_str))
-    payments = c.fetchall()
+    plan = c.fetchall()
+
+    # Дополнительные платежи
+    c.execute("SELECT id, name, amount, completed FROM payments WHERE user_id=? AND month=? AND is_extra=1 ORDER BY id",
+              (user_id, month_str))
+    extra = c.fetchall()
     conn.close()
 
     text = f"• Платежи ({month_str}):\n\n"
-    if not payments:
-        text += "  Пока пусто.\n  Чтобы добавить: Название, Сумма"
-    else:
-        for p in payments:
+
+    if plan:
+        text += "  Основные:\n"
+        for p in plan:
             status = "[x]" if p[3] else "[ ]"
-            text += f"  {status} {p[1]} — {p[2]} руб.  /pay_{p[0]}\n"
-        text += "\n  Чтобы добавить: Название, Сумма"
+            amount_str = f" — {p[2]} руб." if p[2] > 0 else ""
+            text += f"    {status} {p[1]}{amount_str}  /pay_{p[0]}\n"
+
+    if extra:
+        text += "\n  Дополнительные:\n"
+        for p in extra:
+            status = "[x]" if p[3] else "[ ]"
+            text += f"    {status} {p[1]} — {p[2]} руб.  /pay_{p[0]}\n"
+
+    if not plan and not extra:
+        text += "  Платежей пока нет.\n"
+
+    text += "\n  + доп. платёж: Название, Сумма"
+    text += "\n  /pay_номер — отметить оплаченным"
 
     bot.send_message(user_id, text, reply_markup=get_cancel_keyboard())
     bot.register_next_step_handler(message, add_payment)
@@ -195,6 +247,12 @@ def add_payment(message):
     if message.text and message.text.startswith('/'):
         return
 
+    if message.text.strip() == "+":
+        bot.send_message(user_id, "Напиши: Название, Сумма\nНапример: Ремонт авто, 3500",
+                         reply_markup=get_cancel_keyboard())
+        bot.register_next_step_handler(message, add_extra_payment)
+        return
+
     try:
         parts = message.text.split(',')
         name = parts[0].strip()
@@ -202,7 +260,7 @@ def add_payment(message):
         month_str = date.today().strftime("%Y-%m")
         conn = sqlite3.connect('my_life.db')
         c = conn.cursor()
-        c.execute("INSERT INTO payments (user_id, name, amount, month) VALUES (?,?,?,?)",
+        c.execute("INSERT INTO payments (user_id, name, amount, month, is_extra) VALUES (?,?,?,?,1)",
                   (user_id, name, amount, month_str))
         conn.commit()
         conn.close()
@@ -210,7 +268,10 @@ def add_payment(message):
     except:
         bot.send_message(user_id, "Неверный формат.\nПопробуй так: Название, Сумма\nНапример: Интернет, 500",
                          reply_markup=get_cancel_keyboard())
-        bot.register_next_step_handler(message, add_payment)
+        bot.register_next_step_handler(message, add_extra_payment)
+
+def add_extra_payment(message):
+    add_payment(message)
 
 @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/pay_'))
 def complete_payment(message):
@@ -218,10 +279,13 @@ def complete_payment(message):
     pay_id = message.text.split('_')[1]
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
-    c.execute("UPDATE payments SET completed=1 WHERE id=?", (pay_id,))
-    conn.commit()
+    c.execute("SELECT name FROM payments WHERE id=?", (pay_id,))
+    pay = c.fetchone()
+    if pay:
+        c.execute("UPDATE payments SET completed=1 WHERE id=?", (pay_id,))
+        conn.commit()
+        bot.send_message(user_id, f"[x] Оплачено: {pay[0]}", reply_markup=main_menu())
     conn.close()
-    bot.send_message(user_id, "[x] Платёж оплачен.", reply_markup=main_menu())
 
 # --- НЕ КУРЮ ---
 def check_smoke(message):
@@ -317,6 +381,12 @@ def generate_report(message):
     sum_paid = c.fetchone()[0] or 0.0
     c.execute("SELECT count(*) FROM payments WHERE user_id=? AND month=?", (user_id, month_str))
     total_pay = c.fetchone()[0]
+    c.execute("SELECT SUM(amount) FROM payments WHERE user_id=? AND month=?",
+              (user_id, month_str))
+    total_sum = c.fetchone()[0] or 0.0
+    c.execute("SELECT SUM(amount) FROM payments WHERE user_id=? AND month=? AND completed=0",
+              (user_id, month_str))
+    unpaid_sum = c.fetchone()[0] or 0.0
 
     # Не курю
     c.execute("SELECT streak FROM no_smoke WHERE user_id=?", (user_id,))
@@ -333,7 +403,9 @@ def generate_report(message):
 
     report_text = f"• Отчёт за {month_str}\n\n"
     report_text += f"  Задачи: {done} из {total} выполнено\n"
-    report_text += f"  Платежи: оплачено {sum_paid} руб. (всего {total_pay} шт.)\n"
+    report_text += f"  Платежи: оплачено {sum_paid} руб. из {total_sum} руб.\n"
+    report_text += f"    (оплачено {total_pay - (total_pay - sum_paid)} из {total_pay} шт.)\n"
+    report_text += f"    Осталось оплатить: {unpaid_sum} руб.\n"
     report_text += f"  Дней без курения: {streak_days}\n"
     report_text += f"  Записей в дневнике: {diary_count}\n"
     report_text += f"  Благодарностей: {grat_count}"

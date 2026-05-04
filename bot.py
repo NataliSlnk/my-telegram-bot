@@ -59,6 +59,12 @@ def init_db():
                   user_id INTEGER,
                   date DATE,
                   text TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS useful
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER,
+                  title TEXT,
+                  content TEXT,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
 
@@ -82,19 +88,21 @@ def ensure_monthly_payments(user_id):
 # --- ГЛАВНОЕ МЕНЮ ---
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    btn1 = types.KeyboardButton("• Задачи на день")
-    btn2 = types.KeyboardButton("• Задачи на неделю")
-    btn3 = types.KeyboardButton("• Платежи")
-    btn4 = types.KeyboardButton("• Не курю")
-    btn5 = types.KeyboardButton("• Дневник")
-    btn6 = types.KeyboardButton("• Благодарность")
-    btn7 = types.KeyboardButton("• Отчёт")
-    markup.add(btn1, btn2, btn3, btn4, btn5, btn6, btn7)
+    markup.add(
+        types.KeyboardButton("Задачи на день"),
+        types.KeyboardButton("Задачи на неделю"),
+        types.KeyboardButton("Платежи"),
+        types.KeyboardButton("Не курю"),
+        types.KeyboardButton("Дневник"),
+        types.KeyboardButton("Благодарность"),
+        types.KeyboardButton("Отчёт"),
+        types.KeyboardButton("Полезное")
+    )
     return markup
 
 def get_cancel_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton("• Отмена"))
+    markup.add(types.KeyboardButton("Отмена"))
     return markup
 
 # --- СТАРТ ---
@@ -108,29 +116,31 @@ def start(message):
 def handle_menu(message):
     user_id = message.chat.id
 
-    if message.text == "• Отмена":
+    if message.text == "Отмена":
         bot.send_message(user_id, "Возвращаюсь в главное меню.", reply_markup=main_menu())
         return
 
-    if message.text == "• Задачи на день":
+    if message.text == "Задачи на день":
         show_tasks(message, 'day')
-    elif message.text == "• Задачи на неделю":
+    elif message.text == "Задачи на неделю":
         show_tasks(message, 'week')
-    elif message.text == "• Платежи":
+    elif message.text == "Платежи":
         ensure_monthly_payments(user_id)
         show_payments(message)
-    elif message.text == "• Не курю":
+    elif message.text == "Не курю":
         check_smoke(message)
-    elif message.text == "• Дневник":
+    elif message.text == "Дневник":
         bot.send_message(user_id, "Напиши, как прошёл день, или пришли фото (подпись к фото сохранится как текст).",
                          reply_markup=get_cancel_keyboard())
         bot.register_next_step_handler(message, save_diary)
-    elif message.text == "• Благодарность":
+    elif message.text == "Благодарность":
         bot.send_message(user_id, "Напиши, за что ты сегодня благодарна:",
                          reply_markup=get_cancel_keyboard())
         bot.register_next_step_handler(message, save_gratitude)
-    elif message.text == "• Отчёт":
+    elif message.text == "Отчёт":
         generate_report(message)
+    elif message.text == "Полезное":
+        show_useful_menu(message)
     else:
         bot.send_message(user_id, "Используй кнопки меню.", reply_markup=main_menu())
 
@@ -152,7 +162,7 @@ def show_tasks(message, task_type):
         bot.register_next_step_handler(message, add_task, task_type)
         return
 
-    text = f"• Задачи на {type_name.lower()}:\n\n"
+    text = f"Задачи на {type_name.lower()}:\n\n"
     for task in tasks:
         text += f"  [ ] {task[1]}  /done-{task[0]}\n"
     text += "\nНапиши текст, чтобы добавить задачу.\n/done-номер — отметить выполненной."
@@ -163,7 +173,7 @@ def show_tasks(message, task_type):
 def add_task(message, task_type):
     user_id = message.chat.id
 
-    if message.text == "• Отмена":
+    if message.text == "Отмена":
         bot.send_message(user_id, "Возвращаюсь в главное меню.", reply_markup=main_menu())
         return
 
@@ -177,7 +187,7 @@ def add_task(message, task_type):
               (user_id, task_type, task_text, date.today()))
     conn.commit()
     conn.close()
-    bot.send_message(user_id, f"+ Добавлено: {task_text}", reply_markup=main_menu())
+    bot.send_message(user_id, f"Добавлено: {task_text}", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/done-'))
 def complete_task(message):
@@ -211,7 +221,7 @@ def show_payments(message):
     extra = c.fetchall()
     conn.close()
 
-    text = f"• Платежи ({month_str}):\n\n"
+    text = f"Платежи ({month_str}):\n\n"
 
     if plan:
         text += "  Основные:\n"
@@ -238,7 +248,7 @@ def show_payments(message):
 def add_payment(message):
     user_id = message.chat.id
 
-    if message.text == "• Отмена":
+    if message.text == "Отмена":
         bot.send_message(user_id, "Возвращаюсь в главное меню.", reply_markup=main_menu())
         return
 
@@ -256,7 +266,7 @@ def add_payment(message):
                   (user_id, name, amount, month_str))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, f"+ Добавлен платёж: {name}, {amount} руб.", reply_markup=main_menu())
+        bot.send_message(user_id, f"Добавлен платёж: {name}, {amount} руб.", reply_markup=main_menu())
     except:
         bot.send_message(user_id, "Неверный формат.\nПопробуй так: Название, Сумма\nНапример: Интернет, 500",
                          reply_markup=get_cancel_keyboard())
@@ -288,7 +298,7 @@ def check_smoke(message):
     if not data:
         c.execute("INSERT INTO no_smoke (user_id, start_date, last_check, streak) VALUES (?,?,?,?)",
                   (user_id, today, today, 1))
-        bot.send_message(user_id, "• Дней без курения: 1\nПродолжай в том же духе.", reply_markup=main_menu())
+        bot.send_message(user_id, "Дней без курения: 1\nПродолжай в том же духе.", reply_markup=main_menu())
     else:
         last = datetime.strptime(data[1], "%Y-%m-%d").date()
         if last == today:
@@ -298,7 +308,7 @@ def check_smoke(message):
                       (today, user_id))
             c.execute("SELECT streak FROM no_smoke WHERE user_id=?", (user_id,))
             new_streak = c.fetchone()[0]
-            bot.send_message(user_id, f"• Дней без курения: {new_streak}\nТак держать.", reply_markup=main_menu())
+            bot.send_message(user_id, f"Дней без курения: {new_streak}\nТак держать.", reply_markup=main_menu())
     conn.commit()
     conn.close()
 
@@ -306,7 +316,7 @@ def check_smoke(message):
 def save_diary(message):
     user_id = message.chat.id
 
-    if message.text == "• Отмена":
+    if message.text == "Отмена":
         bot.send_message(user_id, "Возвращаюсь в главное меню.", reply_markup=main_menu())
         return
 
@@ -325,7 +335,7 @@ def save_diary(message):
                   (user_id, date.today(), caption, photo_name))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, "+ Запись с фото сохранена.", reply_markup=main_menu())
+        bot.send_message(user_id, "Запись с фото сохранена.", reply_markup=main_menu())
     elif message.text:
         conn = sqlite3.connect('my_life.db')
         c = conn.cursor()
@@ -333,13 +343,13 @@ def save_diary(message):
                   (user_id, date.today(), message.text))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, "+ Запись сохранена.", reply_markup=main_menu())
+        bot.send_message(user_id, "Запись сохранена.", reply_markup=main_menu())
 
 # --- БЛАГОДАРНОСТЬ ---
 def save_gratitude(message):
     user_id = message.chat.id
 
-    if message.text == "• Отмена":
+    if message.text == "Отмена":
         bot.send_message(user_id, "Возвращаюсь в главное меню.", reply_markup=main_menu())
         return
 
@@ -349,7 +359,119 @@ def save_gratitude(message):
               (user_id, date.today(), message.text))
     conn.commit()
     conn.close()
-    bot.send_message(user_id, "+ Благодарность записана.", reply_markup=main_menu())
+    bot.send_message(user_id, "Благодарность записана.", reply_markup=main_menu())
+
+# --- ПОЛЕЗНОЕ ---
+def show_useful_menu(message):
+    user_id = message.chat.id
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(
+        types.KeyboardButton("Посмотреть всё полезное"),
+        types.KeyboardButton("Добавить полезное"),
+        types.KeyboardButton("Удалить полезное"),
+        types.KeyboardButton("Назад в меню")
+    )
+    bot.send_message(user_id, "Раздел Полезное:", reply_markup=markup)
+
+@bot.message_handler(func=lambda msg: msg.text == "Назад в меню")
+def back_to_menu(message):
+    bot.send_message(message.chat.id, "Главное меню:", reply_markup=main_menu())
+
+@bot.message_handler(func=lambda msg: msg.text == "Посмотреть всё полезное")
+def show_all_useful(message):
+    user_id = message.chat.id
+    conn = sqlite3.connect('my_life.db')
+    c = conn.cursor()
+    c.execute("SELECT id, title, content FROM useful WHERE user_id=? ORDER BY id", (user_id,))
+    items = c.fetchall()
+    conn.close()
+
+    if not items:
+        bot.send_message(user_id, "Пока ничего нет. Добавь через кнопку «Добавить полезное».", 
+                         reply_markup=show_useful_menu_reply())
+    else:
+        text = "Полезное:\n\n"
+        for item in items:
+            text += f"  {item[1]}\n    {item[2]}\n\n"
+        text += "Для удаления нажми кнопку «Удалить полезное»"
+        bot.send_message(user_id, text, reply_markup=show_useful_menu_reply())
+
+@bot.message_handler(func=lambda msg: msg.text == "Добавить полезное")
+def add_useful_start(message):
+    bot.send_message(message.chat.id, "Отправь данные в формате:\nНазвание: содержимое\n\nНапример:\nWiFi: пароль123\nИнтернет ЛК: логин / пароль",
+                     reply_markup=get_cancel_keyboard())
+    bot.register_next_step_handler(message, save_useful)
+
+def save_useful(message):
+    user_id = message.chat.id
+
+    if message.text == "Отмена":
+        bot.send_message(user_id, "Возвращаюсь в раздел Полезное.", reply_markup=show_useful_menu_reply())
+        return
+
+    try:
+        parts = message.text.split(':', 1)
+        title = parts[0].strip()
+        content = parts[1].strip()
+        conn = sqlite3.connect('my_life.db')
+        c = conn.cursor()
+        c.execute("INSERT INTO useful (user_id, title, content) VALUES (?,?,?)",
+                  (user_id, title, content))
+        conn.commit()
+        conn.close()
+        bot.send_message(user_id, f"Сохранено: {title}", reply_markup=show_useful_menu_reply())
+    except:
+        bot.send_message(user_id, "Неверный формат. Попробуй ещё раз:\nНазвание: содержимое",
+                         reply_markup=show_useful_menu_reply())
+        bot.register_next_step_handler(message, save_useful)
+
+@bot.message_handler(func=lambda msg: msg.text == "Удалить полезное")
+def delete_useful_start(message):
+    user_id = message.chat.id
+    conn = sqlite3.connect('my_life.db')
+    c = conn.cursor()
+    c.execute("SELECT id, title FROM useful WHERE user_id=? ORDER BY id", (user_id,))
+    items = c.fetchall()
+    conn.close()
+
+    if not items:
+        bot.send_message(user_id, "Удалять нечего.", reply_markup=show_useful_menu_reply())
+        return
+
+    text = "Что удалить? Отправь номер:\n\n"
+    for item in items:
+        text += f"  /del-{item[0]} — {item[1]}\n"
+
+    bot.send_message(user_id, text, reply_markup=get_cancel_keyboard())
+    bot.register_next_step_handler(message, delete_useful)
+
+def delete_useful(message):
+    user_id = message.chat.id
+
+    if message.text == "Отмена":
+        bot.send_message(user_id, "Возвращаюсь в раздел Полезное.", reply_markup=show_useful_menu_reply())
+        return
+
+    if message.text and message.text.startswith('/del-'):
+        item_id = message.text.split('-')[1]
+        conn = sqlite3.connect('my_life.db')
+        c = conn.cursor()
+        c.execute("DELETE FROM useful WHERE id=? AND user_id=?", (item_id, user_id))
+        conn.commit()
+        conn.close()
+        bot.send_message(user_id, "Удалено.", reply_markup=show_useful_menu_reply())
+    else:
+        bot.send_message(user_id, "Отправь команду /del-номер", reply_markup=show_useful_menu_reply())
+
+def show_useful_menu_reply():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+    markup.add(
+        types.KeyboardButton("Посмотреть всё полезное"),
+        types.KeyboardButton("Добавить полезное"),
+        types.KeyboardButton("Удалить полезное"),
+        types.KeyboardButton("Назад в меню")
+    )
+    return markup
 
 # --- ОТЧЁТ ---
 def generate_report(message):
@@ -366,8 +488,6 @@ def generate_report(message):
     c.execute("SELECT SUM(amount) FROM payments WHERE user_id=? AND month=? AND completed=1",
               (user_id, month_str))
     sum_paid = c.fetchone()[0] or 0.0
-    c.execute("SELECT count(*) FROM payments WHERE user_id=? AND month=?", (user_id, month_str))
-    total_pay = c.fetchone()[0]
     c.execute("SELECT SUM(amount) FROM payments WHERE user_id=? AND month=?",
               (user_id, month_str))
     total_sum = c.fetchone()[0] or 0.0
@@ -386,11 +506,10 @@ def generate_report(message):
 
     conn.close()
 
-    report_text = f"• Отчёт за {month_str}\n\n"
+    report_text = f"Отчёт за {month_str}\n\n"
     report_text += f"  Задачи: {done} из {total} выполнено\n"
     report_text += f"  Платежи: оплачено {sum_paid} руб. из {total_sum} руб.\n"
-    report_text += f"    (оплачено {total_pay - total_pay} из {total_pay} шт.)\n"
-    report_text += f"    Осталось оплатить: {unpaid_sum} руб.\n"
+    report_text += f"  Осталось оплатить: {unpaid_sum} руб.\n"
     report_text += f"  Дней без курения: {streak_days}\n"
     report_text += f"  Записей в дневнике: {diary_count}\n"
     report_text += f"  Благодарностей: {grat_count}"

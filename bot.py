@@ -18,7 +18,7 @@ PLAN_PAYMENTS = [
     {"name": "ЮИТ", "amount": 6000},
     {"name": "ПСК", "amount": 1500},
     {"name": "Интернет", "amount": 680},
-    {"name": "Моб.связь", "amount": 0},
+    {"name": "Моб.связь", "amount": 370},
     {"name": "VPN", "amount": 299},
     {"name": "Тхэквандо", "amount": 4900},
 ]
@@ -154,8 +154,8 @@ def show_tasks(message, task_type):
 
     text = f"• Задачи на {type_name.lower()}:\n\n"
     for task in tasks:
-        text += f"  [ ] {task[1]}  /done_{task[0]}\n"
-    text += "\nНапиши текст, чтобы добавить задачу.\n/done_номер — отметить выполненной."
+        text += f"  [ ] {task[1]}  /done-{task[0]}\n"
+    text += "\nНапиши текст, чтобы добавить задачу.\n/done-номер — отметить выполненной."
 
     bot.send_message(user_id, text, reply_markup=get_cancel_keyboard())
     bot.register_next_step_handler(message, add_task, task_type)
@@ -179,10 +179,10 @@ def add_task(message, task_type):
     conn.close()
     bot.send_message(user_id, f"+ Добавлено: {task_text}", reply_markup=main_menu())
 
-@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/done_'))
+@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/done-'))
 def complete_task(message):
     user_id = message.chat.id
-    task_id = message.text.split('_')[1]
+    task_id = message.text.split('-')[1]
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
     c.execute("SELECT text FROM tasks WHERE id=?", (task_id,))
@@ -202,12 +202,10 @@ def show_payments(message):
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
 
-    # Основные платежи
     c.execute("SELECT id, name, amount, completed FROM payments WHERE user_id=? AND month=? AND is_extra=0 ORDER BY id",
               (user_id, month_str))
     plan = c.fetchall()
 
-    # Дополнительные платежи
     c.execute("SELECT id, name, amount, completed FROM payments WHERE user_id=? AND month=? AND is_extra=1 ORDER BY id",
               (user_id, month_str))
     extra = c.fetchall()
@@ -220,19 +218,19 @@ def show_payments(message):
         for p in plan:
             status = "[x]" if p[3] else "[ ]"
             amount_str = f" — {p[2]} руб." if p[2] > 0 else ""
-            text += f"    {status} {p[1]}{amount_str}  /pay_{p[0]}\n"
+            text += f"    {status} {p[1]}{amount_str}  /pay-{p[0]}\n"
 
     if extra:
         text += "\n  Дополнительные:\n"
         for p in extra:
             status = "[x]" if p[3] else "[ ]"
-            text += f"    {status} {p[1]} — {p[2]} руб.  /pay_{p[0]}\n"
+            text += f"    {status} {p[1]} — {p[2]} руб.  /pay-{p[0]}\n"
 
     if not plan and not extra:
         text += "  Платежей пока нет.\n"
 
     text += "\n  + доп. платёж: Название, Сумма"
-    text += "\n  /pay_номер — отметить оплаченным"
+    text += "\n  /pay-номер — отметить оплаченным"
 
     bot.send_message(user_id, text, reply_markup=get_cancel_keyboard())
     bot.register_next_step_handler(message, add_payment)
@@ -245,12 +243,6 @@ def add_payment(message):
         return
 
     if message.text and message.text.startswith('/'):
-        return
-
-    if message.text.strip() == "+":
-        bot.send_message(user_id, "Напиши: Название, Сумма\nНапример: Ремонт авто, 3500",
-                         reply_markup=get_cancel_keyboard())
-        bot.register_next_step_handler(message, add_extra_payment)
         return
 
     try:
@@ -268,15 +260,12 @@ def add_payment(message):
     except:
         bot.send_message(user_id, "Неверный формат.\nПопробуй так: Название, Сумма\nНапример: Интернет, 500",
                          reply_markup=get_cancel_keyboard())
-        bot.register_next_step_handler(message, add_extra_payment)
+        bot.register_next_step_handler(message, add_payment)
 
-def add_extra_payment(message):
-    add_payment(message)
-
-@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/pay_'))
+@bot.message_handler(func=lambda msg: msg.text and msg.text.startswith('/pay-'))
 def complete_payment(message):
     user_id = message.chat.id
-    pay_id = message.text.split('_')[1]
+    pay_id = message.text.split('-')[1]
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
     c.execute("SELECT name FROM payments WHERE id=?", (pay_id,))
@@ -369,13 +358,11 @@ def generate_report(message):
     conn = sqlite3.connect('my_life.db')
     c = conn.cursor()
 
-    # Задачи
     c.execute("SELECT count(*) FROM tasks WHERE user_id=? AND completed=1", (user_id,))
     done = c.fetchone()[0]
     c.execute("SELECT count(*) FROM tasks WHERE user_id=?", (user_id,))
     total = c.fetchone()[0]
 
-    # Платежи
     c.execute("SELECT SUM(amount) FROM payments WHERE user_id=? AND month=? AND completed=1",
               (user_id, month_str))
     sum_paid = c.fetchone()[0] or 0.0
@@ -388,12 +375,10 @@ def generate_report(message):
               (user_id, month_str))
     unpaid_sum = c.fetchone()[0] or 0.0
 
-    # Не курю
     c.execute("SELECT streak FROM no_smoke WHERE user_id=?", (user_id,))
     streak = c.fetchone()
     streak_days = streak[0] if streak else 0
 
-    # Дневник / Благодарности
     c.execute("SELECT count(*) FROM diary WHERE user_id=? AND strftime('%Y-%m', date)=?", (user_id, month_str))
     diary_count = c.fetchone()[0]
     c.execute("SELECT count(*) FROM gratitude WHERE user_id=? AND strftime('%Y-%m', date)=?", (user_id, month_str))
@@ -404,7 +389,7 @@ def generate_report(message):
     report_text = f"• Отчёт за {month_str}\n\n"
     report_text += f"  Задачи: {done} из {total} выполнено\n"
     report_text += f"  Платежи: оплачено {sum_paid} руб. из {total_sum} руб.\n"
-    report_text += f"    (оплачено {total_pay - (total_pay - sum_paid)} из {total_pay} шт.)\n"
+    report_text += f"    (оплачено {total_pay - total_pay} из {total_pay} шт.)\n"
     report_text += f"    Осталось оплатить: {unpaid_sum} руб.\n"
     report_text += f"  Дней без курения: {streak_days}\n"
     report_text += f"  Записей в дневнике: {diary_count}\n"
